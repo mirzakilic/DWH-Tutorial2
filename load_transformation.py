@@ -3,9 +3,9 @@ import psycopg
 # database connection info
 DB_NAME = "DWH"
 HOST = "localhost"
-PORT = 1974
+PORT = 5432
 USER = "postgres"
-PASSWORD = "mirzaway"
+PASSWORD = "mirzakilic"
 
 
 # cleaned files and their target tables
