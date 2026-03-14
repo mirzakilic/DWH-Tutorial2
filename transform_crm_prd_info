@@ -1,0 +1,101 @@
+import os
+import psycopg
+import pandas as pd
+
+DB_NAME = "DWH"
+HOST = "localhost"
+PORT = 5432
+USER = "postgres"
+PASSWORD = "mirzakilic"
+
+output_path = "datasets/transformed/crm_prd_info_cleaned.csv"
+
+conn = psycopg.connect(
+    host=HOST,
+    port=PORT,
+    dbname=DB_NAME,
+    user=USER,
+    password=PASSWORD,
+    autocommit=True
+)
+
+df = pd.read_sql_query(
+    sql="SELECT * FROM ingestion.crm_prd_info",
+    con=conn
+)
+
+conn.close()
+
+# remove rows where product key is missing
+df = df.dropna(subset=["prd_key"])
+
+# remove exact duplicate rows
+df = df.drop_duplicates()
+
+# clean prd_line and replace short codes with full names
+df["prd_line"] = df["prd_line"].fillna("NA").astype(str).str.strip()
+
+prd_line_map = {
+    "M": "Mountain",
+    "R": "Road",
+    "S": "Sport",
+    "T": "Touring"
+}
+df["prd_line"] = df["prd_line"].replace(prd_line_map)
+
+# keep original prd_key and create a new shortened key
+df["prd_key_short"] = df["prd_key"].astype(str).str[:5].str.replace("-", "_", regex=False)
+
+# make prd_cost numeric
+df["prd_cost"] = pd.to_numeric(df["prd_cost"], errors="coerce")
+
+# replace null cost with 0
+df["prd_cost"] = df["prd_cost"].fillna(0)
+
+# if cost is negative, make it positive
+df.loc[df["prd_cost"] < 0, "prd_cost"] = df.loc[df["prd_cost"] < 0, "prd_cost"] * -1
+
+# convert dates
+df["prd_start_dt"] = pd.to_datetime(df["prd_start_dt"], errors="coerce")
+df["prd_end_dt"] = pd.to_datetime(df["prd_end_dt"], errors="coerce")
+
+# sort by original product key and start date
+df = df.sort_values(by=["prd_key", "prd_start_dt"]).reset_index(drop=True)
+
+# fix history dates product by product
+for product_key in df["prd_key"].dropna().unique():
+    product_rows = df[df["prd_key"] == product_key].sort_values("prd_start_dt").index.tolist()
+
+    if len(product_rows) > 1:
+        # every row except the last gets next start date - 1 day
+        for j in range(len(product_rows) - 1):
+            current_idx = product_rows[j]
+            next_idx = product_rows[j + 1]
+
+            next_start = df.loc[next_idx, "prd_start_dt"]
+
+            if pd.notna(next_start):
+                new_end_date = next_start - pd.Timedelta(days=1)
+
+                # only use it if it does not go before the current start date
+                if pd.notna(df.loc[current_idx, "prd_start_dt"]) and new_end_date >= df.loc[current_idx, "prd_start_dt"]:
+                    df.loc[current_idx, "prd_end_dt"] = new_end_date
+
+        # last version keeps null end date
+        last_idx = product_rows[-1]
+        df.loc[last_idx, "prd_end_dt"] = pd.NaT
+
+# final safety rule:
+# if end date is still before start date, set it to null
+bad_dates_mask = (
+    df["prd_start_dt"].notna() &
+    df["prd_end_dt"].notna() &
+    (df["prd_end_dt"] < df["prd_start_dt"])
+)
+df.loc[bad_dates_mask, "prd_end_dt"] = pd.NaT
+
+# save cleaned csv
+os.makedirs("datasets/transformed", exist_ok=True)
+df.to_csv(output_path, index=False)
+
+print("cleaned product csv saved")
