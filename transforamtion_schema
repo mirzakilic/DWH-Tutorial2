@@ -5,9 +5,9 @@ from psycopg import sql
 DB_NAME = "DWH"
 SCHEMA_NAME = "transformation"
 HOST = "localhost"
-PORT = 1974
+PORT = 5432
 USER = "postgres"
-PASSWORD = "mirzaway"
+PASSWORD = "mirzakilic"
 
 
 # create the schema and tables
