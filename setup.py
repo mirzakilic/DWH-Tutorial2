@@ -5,9 +5,9 @@ from psycopg import sql
 DB_NAME = "DWH"
 SCHEMA_NAME = "ingestion"
 HOST = "localhost"
-PORT = 1974
+PORT = 5432
 USER = "postgres"
-PASSWORD = "mirzaway"
+PASSWORD = "mirzakilic"
 
 
 # create the database first if it does not exist yet
@@ -15,7 +15,7 @@ def create_database():
     conn = psycopg.connect(
         host=HOST,
         port=PORT,
-        dbname="postgres",   # connect to the default database first
+        dbname="postgres",
         user=USER,
         password=PASSWORD,
         autocommit=True
@@ -28,9 +28,9 @@ def create_database():
 
             if not exists:
                 cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(DB_NAME)))
-                print(f"✅ Database '{DB_NAME}' created")
+                print(f"database '{DB_NAME}' created")
             else:
-                print(f"ℹ️ Database '{DB_NAME}' already exists")
+                print(f"database '{DB_NAME}' already exists")
 
     finally:
         conn.close()
@@ -118,11 +118,11 @@ def create_schema_and_tables():
             """)
 
         conn.commit()
-        print(f"✅ Schema '{SCHEMA_NAME}' and all 6 tables created successfully")
+        print(f"schema '{SCHEMA_NAME}' and all 6 tables created successfully")
 
     except Exception as e:
         conn.rollback()
-        print("❌ Error while creating schema/tables:")
+        print("error while creating schema/tables:")
         print(e)
 
     finally:
