@@ -3,36 +3,36 @@ import psycopg
 # database connection info
 DB_NAME = "DWH"
 HOST = "localhost"
-PORT = 1974
+PORT = 5432
 USER = "postgres"
-PASSWORD = "mirzaway"
+PASSWORD = "mirzakilic"
 
 
 # csv files and their target tables
 files_to_load = [
     (
         "ingestion.crm_cust_info",
-        r"/Users/mirzakilic/Downloads\datasets\source_crm\cust_info.csv"
+        "datasets/source_crm/cust_info.csv"
     ),
     (
         "ingestion.crm_prd_info",
-        r"/Users/mirzakilic/Downloads\datasets\source_crm\prd_info.csv"
+        "datasets/source_crm/prd_info.csv"
     ),
     (
         "ingestion.crm_sales_details",
-        r"/Users/mirzakilic/Downloads\datasets\source_crm\sales_details.csv"
+        "datasets/source_crm/sales_details.csv"
     ),
     (
         "ingestion.erp_cust_az12",
-       r"/Users/mirzakilic/Downloads\datasets\source_erp\CUST_AZ12.csv"
+        "datasets/source_erp/CUST_AZ12.csv"
     ),
     (
         "ingestion.erp_loc_a101",
-        r"/Users/mirzakilic/Downloads\datasets\source_erp\LOC_A101.csv"
+        "datasets/source_erp/LOC_A101.csv"
     ),
     (
         "ingestion.erp_px_cat_g1v2",
-        r"/Users/mirzakilic/Downloads\datasets\source_erp\PX_CAT_G1V2.csv"
+        "datasets/source_erp/PX_CAT_G1V2.csv"
     ),
 ]
 
@@ -59,14 +59,14 @@ def main():
                         for line in f:
                             copy.write(line)
 
-                print(f"✅ {table_name} loaded from {file_path}")
+                print(f"loaded {table_name} from {file_path}")
 
         conn.commit()
-        print("🎉 All CSV files loaded successfully")
+        print("all csv files loaded successfully")
 
     except Exception as e:
         conn.rollback()
-        print("❌ Error while loading data:")
+        print("error while loading data:")
         print(e)
 
     finally:
