@@ -11,6 +11,7 @@ PASSWORD = "mirzakilic"
 
 
 # create the schema and tables
+
 def create_schema_and_tables():
     conn = psycopg.connect(
         host=HOST,
@@ -49,6 +50,7 @@ def create_schema_and_tables():
                     prd_nm         VARCHAR(255),
                     prd_cost       NUMERIC(12, 2),
                     prd_line       VARCHAR(50),
+                    prd_key_short  VARCHAR(50),
                     prd_start_dt   DATE,
                     prd_end_dt     DATE
                 );
@@ -59,9 +61,9 @@ def create_schema_and_tables():
                     sls_ord_num    VARCHAR(50),
                     sls_prd_key    VARCHAR(50),
                     sls_cust_id    INT,
-                    sls_order_dt   VARCHAR(50),
-                    sls_ship_dt    VARCHAR(50),
-                    sls_due_dt     VARCHAR(50),
+                    sls_order_dt   DATE,
+                    sls_ship_dt    DATE,
+                    sls_due_dt     DATE,
                     sls_sales      NUMERIC(12, 2),
                     sls_quantity   INT,
                     sls_price      NUMERIC(12, 2)
@@ -71,7 +73,7 @@ def create_schema_and_tables():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS transformation.erp_cust_az12 (
                     cid     VARCHAR(50),
-                    bdate   VARCHAR(50),
+                    bdate   DATE,
                     gen     VARCHAR(20)
                 );
             """)
