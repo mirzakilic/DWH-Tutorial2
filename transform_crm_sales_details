@@ -1,0 +1,215 @@
+import os
+import psycopg
+import pandas as pd
+
+DB_NAME = "DWH"
+HOST = "localhost"
+PORT = 5432
+USER = "postgres"
+PASSWORD = "mirzakilic"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SOURCE_CSV = os.path.join(BASE_DIR, "datasets", "source_crm", "sales_details.csv")
+OUTPUT_CSV = os.path.join(BASE_DIR, "datasets", "transformed", "crm_sales_details_cleaned.csv")
+
+REQUIRED_COLUMNS = [
+    "sls_ord_num",
+    "sls_prd_key",
+    "sls_cust_id",
+    "sls_order_dt",
+    "sls_ship_dt",
+    "sls_due_dt",
+    "sls_sales",
+    "sls_quantity",
+    "sls_price",
+]
+
+
+def parse_yyyymmdd(series):
+    cleaned = series.astype("string").str.strip()
+    cleaned = cleaned.where(cleaned.str.fullmatch(r"\d{8}"), pd.NA)
+    return pd.to_datetime(cleaned, format="%Y%m%d", errors="coerce")
+
+
+def standardize_column_names(df):
+    df = df.copy()
+    df.columns = (
+        pd.Index(df.columns)
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_", regex=False)
+    )
+
+    alias_map = {
+        "ord_num": "sls_ord_num",
+        "prd_key": "sls_prd_key",
+        "cust_id": "sls_cust_id",
+        "order_dt": "sls_order_dt",
+        "ship_dt": "sls_ship_dt",
+        "due_dt": "sls_due_dt",
+        "sales": "sls_sales",
+        "quantity": "sls_quantity",
+        "price": "sls_price",
+    }
+
+    rename_dict = {col: alias_map[col] for col in df.columns if col in alias_map}
+    df = df.rename(columns=rename_dict)
+
+    return df
+
+
+def load_sales_data():
+    conn = None
+
+    try:
+        conn = psycopg.connect(
+            host=HOST,
+            port=PORT,
+            dbname=DB_NAME,
+            user=USER,
+            password=PASSWORD,
+        )
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM ingestion.crm_sales_details")
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+
+        df = pd.DataFrame(rows, columns=columns)
+        df = standardize_column_names(df)
+
+        missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+
+        if missing:
+            print("DB table columns do not match expected structure.")
+            print("Missing columns:", missing)
+            print("Falling back to source CSV instead.")
+            raise ValueError("Unexpected DB schema")
+
+        print("Loaded sales details from PostgreSQL.")
+        return df
+
+    except Exception as e:
+        print(f"Could not use PostgreSQL source: {e}")
+        print("Loading directly from source CSV instead.")
+
+        df = pd.read_csv(SOURCE_CSV)
+        df = standardize_column_names(df)
+
+        missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+        if missing:
+            raise ValueError(f"Source CSV is also missing required columns: {missing}")
+
+        return df
+
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def clean_sales_details(df):
+    df = df.copy()
+
+    # keep only needed columns in the right order
+    df = df[REQUIRED_COLUMNS]
+
+    # remove exact duplicate rows
+    df = df.drop_duplicates()
+
+    # standardize text fields
+    df["sls_ord_num"] = df["sls_ord_num"].astype("string").str.strip()
+    df["sls_prd_key"] = df["sls_prd_key"].astype("string").str.strip()
+
+    # numeric conversions
+    df["sls_cust_id"] = pd.to_numeric(df["sls_cust_id"], errors="coerce").astype("Int64")
+    df["sls_sales"] = pd.to_numeric(df["sls_sales"], errors="coerce")
+    df["sls_quantity"] = pd.to_numeric(df["sls_quantity"], errors="coerce")
+    df["sls_price"] = pd.to_numeric(df["sls_price"], errors="coerce")
+
+    # date conversions
+    df["sls_order_dt"] = parse_yyyymmdd(df["sls_order_dt"])
+    df["sls_ship_dt"] = parse_yyyymmdd(df["sls_ship_dt"])
+    df["sls_due_dt"] = parse_yyyymmdd(df["sls_due_dt"])
+
+    # set one common order date per order number
+    # first valid order date in the order, otherwise first valid ship date
+    order_min = df.groupby("sls_ord_num")["sls_order_dt"].transform("min")
+    ship_min = df.groupby("sls_ord_num")["sls_ship_dt"].transform("min")
+    df["sls_order_dt"] = order_min.fillna(ship_min)
+
+    # clean quantity
+    df.loc[df["sls_quantity"] <= 0, "sls_quantity"] = pd.NA
+
+    qty_missing_mask = (
+        df["sls_quantity"].isna()
+        & df["sls_sales"].notna()
+        & df["sls_price"].notna()
+        & (df["sls_price"] != 0)
+    )
+    df.loc[qty_missing_mask, "sls_quantity"] = (
+        df.loc[qty_missing_mask, "sls_sales"].abs()
+        / df.loc[qty_missing_mask, "sls_price"].abs()
+    ).round()
+
+    # clean price
+    df.loc[df["sls_price"] <= 0, "sls_price"] = pd.NA
+
+    price_missing_mask = (
+        df["sls_price"].isna()
+        & df["sls_sales"].notna()
+        & df["sls_quantity"].notna()
+        & (df["sls_quantity"] != 0)
+    )
+    df.loc[price_missing_mask, "sls_price"] = (
+        df.loc[price_missing_mask, "sls_sales"].abs()
+        / df.loc[price_missing_mask, "sls_quantity"]
+    )
+
+    df["sls_price"] = df["sls_price"].abs()
+
+    # clean sales
+    df.loc[df["sls_sales"] <= 0, "sls_sales"] = pd.NA
+
+    sales_missing_mask = (
+        df["sls_sales"].isna()
+        & df["sls_quantity"].notna()
+        & df["sls_price"].notna()
+    )
+    df.loc[sales_missing_mask, "sls_sales"] = (
+        df.loc[sales_missing_mask, "sls_quantity"]
+        * df.loc[sales_missing_mask, "sls_price"]
+    )
+
+    # enforce business rule: sales = quantity * price
+    full_values_mask = (
+        df["sls_quantity"].notna()
+        & df["sls_price"].notna()
+    )
+    df.loc[full_values_mask, "sls_sales"] = (
+        df.loc[full_values_mask, "sls_quantity"]
+        * df.loc[full_values_mask, "sls_price"]
+    )
+
+    # final formatting
+    df["sls_quantity"] = df["sls_quantity"].round().astype("Int64")
+    df["sls_sales"] = df["sls_sales"].round(2)
+    df["sls_price"] = df["sls_price"].round(2)
+
+    df = df.sort_values(by=["sls_ord_num", "sls_prd_key"]).reset_index(drop=True)
+
+    return df
+
+
+def main():
+    df = load_sales_data()
+    df = clean_sales_details(df)
+
+    os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
+    df.to_csv(OUTPUT_CSV, index=False)
+
+    print(f"Cleaned sales details saved to: {OUTPUT_CSV}")
+
+
+if __name__ == "__main__":
+    main()
