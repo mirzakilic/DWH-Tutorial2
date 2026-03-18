@@ -8,36 +8,33 @@ USER = "postgres"
 PASSWORD = "mirzakilic"
 
 
-# csv files and their target tables
+# cleaned files and their target tables
 files_to_load = [
     (
-        "ingestion.crm_cust_info",
-        "datasets/source_crm/cust_info.csv"
+        "transformation.crm_cust_info",
+        "datasets/transformed/crm_cust_info_cleaned.csv"
     ),
     (
-        "ingestion.crm_prd_info",
-        "datasets/source_crm/prd_info.csv"
+        "transformation.crm_prd_info",
+        "datasets/transformed/crm_prd_info_cleaned.csv"
     ),
     (
-        "ingestion.crm_sales_details",
-        "datasets/source_crm/sales_details.csv"
+        "transformation.crm_sales_details",
+        "datasets/transformed/crm_sales_details_cleaned.csv"
     ),
     (
-        "ingestion.erp_cust_az12",
-        "datasets/source_erp/CUST_AZ12.csv"
+        "transformation.erp_cust_az12",
+        "datasets/transformed/erp_cust_az12_cleaned.csv"
     ),
     (
-        "ingestion.erp_loc_a101",
-        "datasets/source_erp/LOC_A101.csv"
-    ),
-    (
-        "ingestion.erp_px_cat_g1v2",
-        "datasets/source_erp/PX_CAT_G1V2.csv"
+        "transformation.erp_loc_a101",
+        "datasets/transformed/erp_loc_a101_cleaned.csv"
     ),
 ]
 
 
-# main loading logic
+# load cleaned csv into transformation schema
+
 def main():
     conn = psycopg.connect(
         host=HOST,
@@ -62,11 +59,11 @@ def main():
                 print(f"loaded {table_name} from {file_path}")
 
         conn.commit()
-        print("all csv files loaded successfully")
+        print("all cleaned csv files loaded successfully")
 
     except Exception as e:
         conn.rollback()
-        print("error while loading data:")
+        print("error while loading transformed data:")
         print(e)
 
     finally:
