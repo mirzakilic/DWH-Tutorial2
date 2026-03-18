@@ -1,0 +1,88 @@
+import os
+import re
+import psycopg
+import pandas as pd
+
+DB_NAME = "DWH"
+HOST = "localhost"
+PORT = 5432
+USER = "postgres"
+PASSWORD = "mirzakilic"
+
+output_path = "datasets/transformed/erp_cust_az12_cleaned.csv"
+
+
+# clean customer id so it matches crm customer keys
+
+def clean_customer_id(value):
+    if pd.isna(value):
+        return pd.NA
+
+    value = str(value).strip().upper()
+    value = re.sub(r"^NAS", "", value)
+    value = value.replace("-", "")
+
+    return value if value else pd.NA
+
+
+# apply all cleaning rules to erp customer data
+
+def clean_erp_cust_az12(df):
+    df = df.copy()
+
+    df.columns = [col.lower() for col in df.columns]
+    df = df.drop_duplicates()
+
+    # fix id column
+    df["cid"] = df["cid"].apply(clean_customer_id)
+
+    # fix gender column for consistency
+    df["gen"] = df["gen"].astype("string").str.strip().str.upper()
+    gender_map = {
+        "M": "Male",
+        "MALE": "Male",
+        "F": "Female",
+        "FEMALE": "Female"
+    }
+    df["gen"] = df["gen"].map(gender_map).fillna("NA")
+
+    # parse birth date and replace future dates with null
+    df["bdate"] = pd.to_datetime(df["bdate"], errors="coerce")
+    today = pd.Timestamp.today().normalize()
+    df.loc[df["bdate"] > today, "bdate"] = pd.NaT
+
+    # keep consistent order
+    df = df.sort_values(by=["cid"]).reset_index(drop=True)
+
+    return df
+
+
+# fetch from ingestion, clean, and save
+
+def main():
+    conn = psycopg.connect(
+        host=HOST,
+        port=PORT,
+        dbname=DB_NAME,
+        user=USER,
+        password=PASSWORD,
+        autocommit=True
+    )
+
+    df = pd.read_sql_query(
+        sql="SELECT * FROM ingestion.erp_cust_az12",
+        con=conn
+    )
+
+    conn.close()
+
+    df = clean_erp_cust_az12(df)
+
+    os.makedirs("datasets/transformed", exist_ok=True)
+    df.to_csv(output_path, index=False)
+
+    print("cleaned erp customer csv saved")
+
+
+if __name__ == "__main__":
+    main()
